@@ -1,69 +1,125 @@
 import pandas as pd
+import numpy as np
+import re
+import os
 import joblib
+
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import classification_report
 from sklearn.model_selection import train_test_split
 
-# Load dataset
-df = pd.read_csv(r"D:\IIT-Gandhinagar_Project\sample_100k.csv")
+# Reproducibility
 
-X = df["DATA"]
+SEED = 42
+np.random.seed(SEED)
+
+
+# Paths
+
+BASE_PATH = r"D:\IIT-Gandhinagar_Project"
+DATA_PATH = os.path.join(BASE_PATH, "sample_100k.csv")
+MODEL_PATH = os.path.join(BASE_PATH, "final_models")
+RESULT_PATH = os.path.join(BASE_PATH, "experiments", "ml_results.txt")
+
+os.makedirs(MODEL_PATH, exist_ok=True)
+
+
+# Preprocessing
+
+def preprocess(text):
+    text = text.lower()
+    text = re.sub(r'http\S+|www\S+', '', text)   # remove URLs
+    text = re.sub(r'\d+', '', text)              # remove numbers
+    text = re.sub(r'[^a-z\s]', '', text)         # remove special chars
+    text = re.sub(r'\s+', ' ', text).strip()     # normalize spaces
+    return text
+
+# Load Data
+
+df = pd.read_csv(DATA_PATH)
+
+X = df["DATA"].astype(str).apply(preprocess)
 y = df["TOPIC"]
 
-# Train / Validation / Test split (70 / 10 / 20)
+
+# Train / Val / Test Split
+
 X_train, X_temp, y_train, y_temp = train_test_split(
-    X, y, test_size=0.3, random_state=42, stratify=y
+    X, y, test_size=0.3, random_state=SEED, stratify=y
 )
 
 X_val, X_test, y_val, y_test = train_test_split(
-    X_temp, y_temp, test_size=2/3, random_state=42, stratify=y_temp
+    X_temp, y_temp, test_size=2/3, random_state=SEED, stratify=y_temp
 )
 
-# TF-IDF
-vectorizer = TfidfVectorizer(max_features=20000)
+# TF-IDF (IMPROVED)
+
+vectorizer = TfidfVectorizer(
+    max_features=20000,
+    ngram_range=(1, 2),
+    min_df=2,
+    max_df=0.95
+)
 
 X_train_vec = vectorizer.fit_transform(X_train)
 X_val_vec = vectorizer.transform(X_val)
 X_test_vec = vectorizer.transform(X_test)
 
-# Normal Logistic Regression (no class_weight)
-model = LogisticRegression(max_iter=200)
+
+# Model (Normal Logistic Regression)
+
+model = LogisticRegression(
+    max_iter=300,
+    n_jobs=-1
+)
+
 model.fit(X_train_vec, y_train)
 
-# Train evaluation
+
+# Evaluation Function
+
+def evaluate(name, y_true, y_pred):
+    print(f"\n========== {name} RESULTS ==========\n")
+    report = classification_report(y_true, y_pred)
+    print(report)
+    return report
+
+
+# Predictions
+
 train_pred = model.predict(X_train_vec)
-train_report = classification_report(y_train, train_pred)
-
-print("\nTrain Results:\n")
-print(train_report)
-
-# Validation evaluation
 val_pred = model.predict(X_val_vec)
-val_report = classification_report(y_val, val_pred)
-
-print("\nValidation Results:\n")
-print(val_report)
-
-# Test evaluation
 test_pred = model.predict(X_test_vec)
-test_report = classification_report(y_test, test_pred)
 
-print("\nTest Results:\n")
-print(test_report)
 
-# Save results (append, not overwrite)
-with open(r"D:\IIT-Gandhinagar_Project\experiments\ml_results.txt", "a") as f:
-    f.write("\n\nNormal Logistic Regression\n\n")
-    f.write("Train Results:\n")
-    f.write(train_report)
-    f.write("\n\nValidation Results:\n")
-    f.write(val_report)
-    f.write("\n\nTest Results:\n")
-    f.write(test_report)
+# Reports
 
-# Save model and vectorizer
-joblib.dump(model, r"D:\IIT-Gandhinagar_Project\final_models\normal_logistic_model.pkl")
-joblib.dump(vectorizer, r"D:\IIT-Gandhinagar_Project\final_models\tfidf_vectorizer_normal.pkl")
+train_report = evaluate("TRAIN", y_train, train_pred)
+val_report = evaluate("VALIDATION", y_val, val_pred)
+test_report = evaluate("TEST", y_test, test_pred)
 
-print("\nNormal Logistic model and vectorizer saved successfully.")
+
+# Save Results (APPEND MODE)
+
+with open(RESULT_PATH, "a") as f:
+    f.write("\n" + "="*80 + "\n")
+    f.write("NORMAL LOGISTIC REGRESSION (FINAL)\n")
+    f.write("="*80 + "\n\n")
+
+    f.write("TRAIN RESULTS:\n")
+    f.write(train_report + "\n\n")
+
+    f.write("VALIDATION RESULTS:\n")
+    f.write(val_report + "\n\n")
+
+    f.write("TEST RESULTS:\n")
+    f.write(test_report + "\n")
+
+
+# Save Model + Vectorizer
+
+joblib.dump(model, os.path.join(MODEL_PATH, "normal_logistic_model.pkl"))
+joblib.dump(vectorizer, os.path.join(MODEL_PATH, "tfidf_vectorizer_normal.pkl"))
+
+print("\nNormal Logistic Regression saved successfully.")

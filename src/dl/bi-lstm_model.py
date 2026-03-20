@@ -10,38 +10,52 @@ from collections import Counter
 import re
 import os
 
-
+# ==============================
 # Reproducibility
-
+# ==============================
 SEED = 42
 torch.manual_seed(SEED)
 np.random.seed(SEED)
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+# ==============================
 # Paths
-
+# ==============================
 BASE_PATH = r"D:\IIT-Gandhinagar_Project"
 MODEL_PATH = os.path.join(BASE_PATH, "final_models")
 RESULT_PATH = os.path.join(BASE_PATH, "experiments", "dl_results.txt")
 
 os.makedirs(MODEL_PATH, exist_ok=True)
 
-# Load Data
+# ==============================
+# Preprocessing
+# ==============================
+def preprocess(text):
+    text = text.lower()
+    text = re.sub(r'http\S+|www\S+', '', text)     # remove URLs
+    text = re.sub(r'\d+', '', text)                # remove numbers
+    text = re.sub(r'[^a-z\s]', '', text)           # remove special chars
+    text = re.sub(r'\s+', ' ', text).strip()       # clean spaces
+    return text
 
+# ==============================
+# Load Data
+# ==============================
 df = pd.read_csv(os.path.join(BASE_PATH, "sample_100k.csv"))
 
-X = df["DATA"].astype(str)
+X = df["DATA"].astype(str).apply(preprocess)
 y = df["TOPIC"]
 
-
+# ==============================
 # Label Encoding
-
+# ==============================
 labels = {label: idx for idx, label in enumerate(y.unique())}
 y_encoded = y.map(labels)
 
+# ==============================
 # Split (70 / 10 / 20)
-
+# ==============================
 X_train, X_temp, y_train, y_temp = train_test_split(
     X, y_encoded, test_size=0.3, random_state=SEED, stratify=y_encoded
 )
@@ -50,14 +64,17 @@ X_val, X_test, y_val, y_test = train_test_split(
     X_temp, y_temp, test_size=2/3, random_state=SEED, stratify=y_temp
 )
 
-
+# ==============================
 # Tokenization (unigram + bigram)
-
+# ==============================
 def tokenize(text):
-    words = re.findall(r'\b\w+\b', text.lower())
+    words = text.split()
     bigrams = [words[i] + "_" + words[i+1] for i in range(len(words)-1)]
     return words + bigrams
 
+# ==============================
+# Build Vocabulary (ONLY TRAIN)
+# ==============================
 counter = Counter()
 for text in X_train:
     counter.update(tokenize(text))
@@ -65,9 +82,9 @@ for text in X_train:
 MAX_VOCAB = 30000
 vocab = {word: i+1 for i, (word, _) in enumerate(counter.most_common(MAX_VOCAB))}
 
-
+# ==============================
 # Encode + Pad
-
+# ==============================
 MAX_LEN = 120
 
 def encode(text):
@@ -89,9 +106,9 @@ y_train = torch.tensor(y_train.values).to(device)
 y_val = torch.tensor(y_val.values).to(device)
 y_test = torch.tensor(y_test.values).to(device)
 
-
+# ==============================
 # BiLSTM Model
-
+# ==============================
 class BiLSTMModel(nn.Module):
     def __init__(self, vocab_size, embed_dim, hidden_dim, num_classes):
         super().__init__()
@@ -114,9 +131,9 @@ model = BiLSTMModel(
     num_classes=len(labels)
 ).to(device)
 
-
+# ==============================
 # Training Setup
-
+# ==============================
 criterion = nn.CrossEntropyLoss()
 optimizer = optim.Adam(model.parameters(), lr=0.0005)
 
@@ -127,9 +144,9 @@ PATIENCE = 2
 best_val_loss = float('inf')
 patience_counter = 0
 
-
+# ==============================
 # Training Functions
-
+# ==============================
 def train_epoch():
     model.train()
     total_loss = 0
@@ -149,7 +166,6 @@ def train_epoch():
 
     return total_loss
 
-
 def eval_loss(X, y):
     model.eval()
     total_loss = 0
@@ -162,8 +178,9 @@ def eval_loss(X, y):
             total_loss += loss.item()
     return total_loss
 
-# Training Loop (with early stopping)
-
+# ==============================
+# Training Loop
+# ==============================
 for epoch in range(EPOCHS):
     train_loss = train_epoch()
     val_loss = eval_loss(X_val_seq, y_val)
@@ -184,8 +201,9 @@ for epoch in range(EPOCHS):
         print("Early stopping triggered")
         break
 
+# ==============================
 # Evaluation
-
+# ==============================
 def evaluate(X, y):
     model.eval()
     preds = []
@@ -206,17 +224,19 @@ print("\nTRAIN RESULTS:\n", train_report)
 print("\nVALIDATION RESULTS:\n", val_report)
 print("\nTEST RESULTS:\n", test_report)
 
+# ==============================
 # Save Results
-
+# ==============================
 with open(RESULT_PATH, "a") as f:
     f.write("\n" + "="*80 + "\n")
-    f.write("FINAL BiLSTM (OPTIMIZED)\n\n")
+    f.write("FINAL BiLSTM (WITH PREPROCESSING)\n\n")
     f.write("TRAIN:\n" + train_report + "\n\n")
     f.write("VALIDATION:\n" + val_report + "\n\n")
     f.write("TEST:\n" + test_report + "\n")
 
+# ==============================
 # Save Artifacts
-
+# ==============================
 joblib.dump(vocab, os.path.join(MODEL_PATH, "bilstm_vocab.pkl"))
 joblib.dump(labels, os.path.join(MODEL_PATH, "bilstm_labels.pkl"))
 
