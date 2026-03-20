@@ -8,6 +8,8 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report
 from collections import Counter
 import re
+import os
+
 
 # Reproducibility
 
@@ -17,19 +19,28 @@ np.random.seed(SEED)
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+# Paths
+
+BASE_PATH = r"D:\IIT-Gandhinagar_Project"
+MODEL_PATH = os.path.join(BASE_PATH, "final_models")
+RESULT_PATH = os.path.join(BASE_PATH, "experiments", "dl_results.txt")
+
+os.makedirs(MODEL_PATH, exist_ok=True)
 
 # Load Data
 
-df = pd.read_csv(r"D:\IIT-Gandhinagar_Project\sample_100k.csv")
+df = pd.read_csv(os.path.join(BASE_PATH, "sample_100k.csv"))
 
 X = df["DATA"].astype(str)
 y = df["TOPIC"]
 
-# Label encoding
+
+# Label Encoding
+
 labels = {label: idx for idx, label in enumerate(y.unique())}
 y_encoded = y.map(labels)
 
-# Split
+# Split (70 / 10 / 20)
 
 X_train, X_temp, y_train, y_temp = train_test_split(
     X, y_encoded, test_size=0.3, random_state=SEED, stratify=y_encoded
@@ -39,22 +50,25 @@ X_val, X_test, y_val, y_test = train_test_split(
     X_temp, y_temp, test_size=2/3, random_state=SEED, stratify=y_temp
 )
 
-# Tokenization
+
+# Tokenization (unigram + bigram)
 
 def tokenize(text):
-    return re.findall(r'\b\w+\b', text.lower())
+    words = re.findall(r'\b\w+\b', text.lower())
+    bigrams = [words[i] + "_" + words[i+1] for i in range(len(words)-1)]
+    return words + bigrams
 
 counter = Counter()
 for text in X_train:
     counter.update(tokenize(text))
 
-MAX_VOCAB = 20000
+MAX_VOCAB = 30000
 vocab = {word: i+1 for i, (word, _) in enumerate(counter.most_common(MAX_VOCAB))}
 
 
 # Encode + Pad
 
-MAX_LEN = 100
+MAX_LEN = 120
 
 def encode(text):
     return [vocab.get(word, 0) for word in tokenize(text)]
@@ -65,7 +79,7 @@ def pad(seqs):
         seq = seq[:MAX_LEN]
         seq = seq + [0]*(MAX_LEN - len(seq))
         padded.append(seq)
-    return torch.tensor(padded)
+    return torch.tensor(padded, dtype=torch.long)
 
 X_train_seq = pad([encode(t) for t in X_train]).to(device)
 X_val_seq = pad([encode(t) for t in X_val]).to(device)
@@ -75,41 +89,36 @@ y_train = torch.tensor(y_train.values).to(device)
 y_val = torch.tensor(y_val.values).to(device)
 y_test = torch.tensor(y_test.values).to(device)
 
-# Class Weights
 
-class_counts = np.bincount(y_train.cpu().numpy())
-class_weights = 1.0 / (class_counts + 1e-6)
-class_weights = torch.tensor(class_weights, dtype=torch.float).to(device)
+# BiLSTM Model
 
-
-# Model
-
-class LSTMModel(nn.Module):
+class BiLSTMModel(nn.Module):
     def __init__(self, vocab_size, embed_dim, hidden_dim, num_classes):
         super().__init__()
         self.embedding = nn.Embedding(vocab_size, embed_dim, padding_idx=0)
-        self.lstm = nn.LSTM(embed_dim, hidden_dim, batch_first=True)
-        self.dropout = nn.Dropout(0.3)
-        self.fc = nn.Linear(hidden_dim, num_classes)
+        self.lstm = nn.LSTM(embed_dim, hidden_dim, batch_first=True, bidirectional=True)
+        self.dropout = nn.Dropout(0.4)
+        self.fc = nn.Linear(hidden_dim * 2, num_classes)
 
     def forward(self, x):
         x = self.embedding(x)
         _, (hidden, _) = self.lstm(x)
-        x = self.dropout(hidden[-1])
+        h = torch.cat((hidden[-2], hidden[-1]), dim=1)
+        x = self.dropout(h)
         return self.fc(x)
 
-model = LSTMModel(
+model = BiLSTMModel(
     vocab_size=MAX_VOCAB + 1,
-    embed_dim=128,
-    hidden_dim=128,
+    embed_dim=200,
+    hidden_dim=256,
     num_classes=len(labels)
 ).to(device)
 
 
 # Training Setup
 
-criterion = nn.CrossEntropyLoss(weight=class_weights)
-optimizer = optim.Adam(model.parameters(), lr=0.001)
+criterion = nn.CrossEntropyLoss()
+optimizer = optim.Adam(model.parameters(), lr=0.0005)
 
 EPOCHS = 10
 BATCH_SIZE = 256
@@ -132,12 +141,16 @@ def train_epoch():
         outputs = model(xb)
         loss = criterion(outputs, yb)
         loss.backward()
-        optimizer.step()
 
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+
+        optimizer.step()
         total_loss += loss.item()
+
     return total_loss
 
-def evaluate_loss(X, y):
+
+def eval_loss(X, y):
     model.eval()
     total_loss = 0
     with torch.no_grad():
@@ -149,12 +162,11 @@ def evaluate_loss(X, y):
             total_loss += loss.item()
     return total_loss
 
-
-# Training Loop
+# Training Loop (with early stopping)
 
 for epoch in range(EPOCHS):
     train_loss = train_epoch()
-    val_loss = evaluate_loss(X_val_seq, y_val)
+    val_loss = eval_loss(X_val_seq, y_val)
 
     print(f"Epoch {epoch+1} | Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f}")
 
@@ -162,9 +174,7 @@ for epoch in range(EPOCHS):
         best_val_loss = val_loss
         patience_counter = 0
 
-        torch.save(model.state_dict(),
-                   r"D:\IIT-Gandhinagar_Project\final_models\lstm_best.pth")
-
+        torch.save(model.state_dict(), os.path.join(MODEL_PATH, "bilstm_best.pth"))
         print("Best model saved")
 
     else:
@@ -185,6 +195,7 @@ def evaluate(X, y):
             outputs = model(xb)
             pred = torch.argmax(outputs, dim=1)
             preds.extend(pred.cpu().numpy())
+
     return classification_report(y.cpu().numpy(), preds, zero_division=0)
 
 train_report = evaluate(X_train_seq, y_train)
@@ -195,20 +206,18 @@ print("\nTRAIN RESULTS:\n", train_report)
 print("\nVALIDATION RESULTS:\n", val_report)
 print("\nTEST RESULTS:\n", test_report)
 
-
 # Save Results
 
-with open(r"D:\IIT-Gandhinagar_Project\experiments\dl_results.txt", "a") as f:
+with open(RESULT_PATH, "a") as f:
     f.write("\n" + "="*80 + "\n")
-    f.write("FINAL LSTM (10 EPOCHS)\n\n")
+    f.write("FINAL BiLSTM (OPTIMIZED)\n\n")
     f.write("TRAIN:\n" + train_report + "\n\n")
     f.write("VALIDATION:\n" + val_report + "\n\n")
     f.write("TEST:\n" + test_report + "\n")
 
-
 # Save Artifacts
 
-joblib.dump(vocab, r"D:\IIT-Gandhinagar_Project\final_models\vocab.pkl")
-joblib.dump(labels, r"D:\IIT-Gandhinagar_Project\final_models\label_map.pkl")
+joblib.dump(vocab, os.path.join(MODEL_PATH, "bilstm_vocab.pkl"))
+joblib.dump(labels, os.path.join(MODEL_PATH, "bilstm_labels.pkl"))
 
-print("\nFinal LSTM model saved successfully.")
+print("\nAll artifacts saved successfully.")
