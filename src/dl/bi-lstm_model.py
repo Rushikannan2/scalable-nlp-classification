@@ -1,26 +1,33 @@
+
 import pandas as pd
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
 import joblib
+import re
+import os
+import random
+
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report
 from collections import Counter
-import re
-import os
 
+# ==============================
 # Reproducibility
 
 SEED = 42
 torch.manual_seed(SEED)
 np.random.seed(SEED)
+random.seed(SEED)
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
 
 # Paths
 
 BASE_PATH = r"D:\IIT-Gandhinagar_Project"
+DATA_PATH = os.path.join(BASE_PATH, "sample_100k.csv")
 MODEL_PATH = os.path.join(BASE_PATH, "final_models")
 RESULT_PATH = os.path.join(BASE_PATH, "experiments", "dl_results.txt")
 
@@ -37,7 +44,6 @@ def preprocess(text):
     text = re.sub(r'\s+', ' ', text).strip()
     return text
 
-
 # Feature Engineering
 
 def extract_features(text):
@@ -49,12 +55,12 @@ def extract_features(text):
         text.count('?')
     ]
 
+
 # Load Data
 
-df = pd.read_csv(os.path.join(BASE_PATH, "sample_100k.csv"))
+df = pd.read_csv(DATA_PATH)
 
 df["DATA"] = df["DATA"].astype(str).apply(preprocess)
-
 extra_features = np.array(df["DATA"].apply(extract_features).tolist())
 
 X = df["DATA"]
@@ -63,18 +69,21 @@ y = df["TOPIC"]
 
 # Label Encoding
 
-labels = {label: idx for idx, label in enumerate(y.unique())}
+labels = {label: idx for idx, label in enumerate(sorted(y.unique()))}
+inv_labels = {v: k for k, v in labels.items()}
 y_encoded = y.map(labels)
 
 
 # Split
 
 X_train, X_temp, y_train, y_temp, f_train, f_temp = train_test_split(
-    X, y_encoded, extra_features, test_size=0.3, random_state=SEED, stratify=y_encoded
+    X, y_encoded, extra_features,
+    test_size=0.3, random_state=SEED, stratify=y_encoded
 )
 
 X_val, X_test, y_val, y_test, f_val, f_test = train_test_split(
-    X_temp, y_temp, f_temp, test_size=2/3, random_state=SEED, stratify=y_temp
+    X_temp, y_temp, f_temp,
+    test_size=2/3, random_state=SEED, stratify=y_temp
 )
 
 
@@ -119,15 +128,17 @@ f_train = torch.tensor(f_train, dtype=torch.float).to(device)
 f_val = torch.tensor(f_val, dtype=torch.float).to(device)
 f_test = torch.tensor(f_test, dtype=torch.float).to(device)
 
-y_train = torch.tensor(y_train.values).to(device)
-y_val = torch.tensor(y_val.values).to(device)
-y_test = torch.tensor(y_test.values).to(device)
+y_train = torch.tensor(y_train.values, dtype=torch.long).to(device)
+y_val = torch.tensor(y_val.values, dtype=torch.long).to(device)
+y_test = torch.tensor(y_test.values, dtype=torch.long).to(device)
+
 
 # Class Weights
 
 class_counts = np.bincount(y_train.cpu().numpy())
 class_weights = 1.0 / (class_counts + 1e-6)
 class_weights = torch.tensor(class_weights, dtype=torch.float).to(device)
+
 
 # Model
 
@@ -157,9 +168,10 @@ model = BiLSTMModel(
     feat_dim=4
 ).to(device)
 
-#  Parameter count (IMPORTANT)
+# Parameter count
 total_params = sum(p.numel() for p in model.parameters())
 print(f"\nTotal Parameters: {total_params}")
+
 
 # Training Setup
 
@@ -172,7 +184,6 @@ PATIENCE = 5
 
 best_val_loss = float('inf')
 patience_counter = 0
-
 
 # Training
 
@@ -221,14 +232,16 @@ for epoch in range(EPOCHS):
     if val_loss < best_val_loss:
         best_val_loss = val_loss
         patience_counter = 0
+
         torch.save(model.state_dict(), os.path.join(MODEL_PATH, "bilstm_best.pth"))
-        print(" Best model saved")
+        print("Best model saved")
     else:
         patience_counter += 1
 
     if patience_counter >= PATIENCE:
-        print(" Early stopping triggered")
+        print("Early stopping triggered")
         break
+
 
 # Evaluation
 
@@ -242,6 +255,7 @@ def evaluate(X, F, y):
             outputs = model(xb, fb)
             pred = torch.argmax(outputs, dim=1)
             preds.extend(pred.cpu().numpy())
+
     return classification_report(y.cpu().numpy(), preds, zero_division=0)
 
 train_report = evaluate(X_train_seq, f_train, y_train)
@@ -251,31 +265,48 @@ test_report = evaluate(X_test_seq, f_test, y_test)
 print("\nTEST RESULTS:\n", test_report)
 
 
-# Save EVERYTHING
+# SAVE EVERYTHING 
 
+
+# Model weights
+torch.save(model.state_dict(), os.path.join(MODEL_PATH, "bilstm_final.pth"))
+
+# Full checkpoint
+torch.save({
+    "model_state_dict": model.state_dict(),
+    "optimizer_state_dict": optimizer.state_dict(),
+    "config": {
+        "vocab_size": MAX_VOCAB + 1,
+        "embed_dim": 200,
+        "hidden_dim": 256,
+        "num_classes": len(labels),
+        "feat_dim": 4,
+        "max_len": MAX_LEN
+    }
+}, os.path.join(MODEL_PATH, "bilstm_checkpoint.pth"))
+
+# Artifacts
 joblib.dump(vocab, os.path.join(MODEL_PATH, "vocab.pkl"))
 joblib.dump(labels, os.path.join(MODEL_PATH, "labels.pkl"))
+joblib.dump(inv_labels, os.path.join(MODEL_PATH, "inverse_labels.pkl"))
 
 joblib.dump({
-    "vocab_size": MAX_VOCAB + 1,
-    "embed_dim": 200,
-    "hidden_dim": 256,
-    "num_classes": len(labels),
-    "feat_dim": 4,
-    "max_len": MAX_LEN
-}, os.path.join(MODEL_PATH, "config.pkl"))
-
-joblib.dump({
-    "preprocessing": "lowercase + remove urls + numbers + special chars",
+    "preprocessing": "lowercase + clean",
     "tokenization": "unigram + bigram",
     "features": ["length", "avg_word_len", "!", "?"]
 }, os.path.join(MODEL_PATH, "pipeline.pkl"))
 
+joblib.dump(
+    dict(pd.Series(y).value_counts()),
+    os.path.join(MODEL_PATH, "label_distribution.pkl")
+)
+
+# Results
 with open(RESULT_PATH, "a") as f:
     f.write("\n" + "="*80 + "\n")
-    f.write("FINAL BiLSTM (FULL PIPELINE)\n\n")
+    f.write("FINAL BiLSTM (FULL)\n\n")
     f.write("TRAIN:\n" + train_report + "\n\n")
-    f.write("VALIDATION:\n" + val_report + "\n\n")
+    f.write("VAL:\n" + val_report + "\n\n")
     f.write("TEST:\n" + test_report + "\n")
 
-print("\n EVERYTHING SAVED (MODEL + CONFIG + PIPELINE + RESULTS)")
+print("\n EVERYTHING SAVED PERFECTLY (MODEL + CONFIG + PIPELINE + CHECKPOINT)")

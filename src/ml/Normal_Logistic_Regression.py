@@ -3,17 +3,19 @@ import numpy as np
 import re
 import os
 import joblib
+import random
 
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import classification_report
 from sklearn.model_selection import train_test_split
 
+
 # Reproducibility
 
 SEED = 42
+random.seed(SEED)
 np.random.seed(SEED)
-
 
 # Paths
 
@@ -29,10 +31,10 @@ os.makedirs(MODEL_PATH, exist_ok=True)
 
 def preprocess(text):
     text = text.lower()
-    text = re.sub(r'http\S+|www\S+', '', text)   # remove URLs
-    text = re.sub(r'\d+', '', text)              # remove numbers
-    text = re.sub(r'[^a-z\s]', '', text)         # remove special chars
-    text = re.sub(r'\s+', ' ', text).strip()     # normalize spaces
+    text = re.sub(r'http\S+|www\S+', '', text)
+    text = re.sub(r'\d+', '', text)
+    text = re.sub(r'[^a-z\s]', '', text)
+    text = re.sub(r'\s+', ' ', text).strip()
     return text
 
 # Load Data
@@ -43,17 +45,23 @@ X = df["DATA"].astype(str).apply(preprocess)
 y = df["TOPIC"]
 
 
+# Label Encoding (IMPORTANT)
+
+labels = {label: idx for idx, label in enumerate(sorted(y.unique()))}
+y_encoded = y.map(labels)
+
 # Train / Val / Test Split
 
 X_train, X_temp, y_train, y_temp = train_test_split(
-    X, y, test_size=0.3, random_state=SEED, stratify=y
+    X, y_encoded, test_size=0.3, random_state=SEED, stratify=y_encoded
 )
 
 X_val, X_test, y_val, y_test = train_test_split(
     X_temp, y_temp, test_size=2/3, random_state=SEED, stratify=y_temp
 )
 
-# TF-IDF (IMPROVED)
+
+# TF-IDF
 
 vectorizer = TfidfVectorizer(
     max_features=20000,
@@ -67,17 +75,16 @@ X_val_vec = vectorizer.transform(X_val)
 X_test_vec = vectorizer.transform(X_test)
 
 
-# Model (Normal Logistic Regression)
+# Model
 
 model = LogisticRegression(
-    max_iter=300,
-    n_jobs=-1
+    max_iter=300
 )
 
 model.fit(X_train_vec, y_train)
 
 
-# Evaluation Function
+# Evaluation
 
 def evaluate(name, y_true, y_pred):
     print(f"\n========== {name} RESULTS ==========\n")
@@ -85,22 +92,15 @@ def evaluate(name, y_true, y_pred):
     print(report)
     return report
 
-
-# Predictions
-
 train_pred = model.predict(X_train_vec)
 val_pred = model.predict(X_val_vec)
 test_pred = model.predict(X_test_vec)
-
-
-# Reports
 
 train_report = evaluate("TRAIN", y_train, train_pred)
 val_report = evaluate("VALIDATION", y_val, val_pred)
 test_report = evaluate("TEST", y_test, test_pred)
 
-
-# Save Results (APPEND MODE)
+# Save Results
 
 with open(RESULT_PATH, "a") as f:
     f.write("\n" + "="*80 + "\n")
@@ -117,9 +117,55 @@ with open(RESULT_PATH, "a") as f:
     f.write(test_report + "\n")
 
 
-# Save Model + Vectorizer
+# SAVE EVERYTHING 
 
+
+# 1. Model
 joblib.dump(model, os.path.join(MODEL_PATH, "normal_logistic_model.pkl"))
+
+# 2. Vectorizer
 joblib.dump(vectorizer, os.path.join(MODEL_PATH, "tfidf_vectorizer_normal.pkl"))
 
-print("\nNormal Logistic Regression saved successfully.")
+# 3. Label Mapping
+joblib.dump(labels, os.path.join(MODEL_PATH, "label_map_normal.pkl"))
+
+# 4. Reverse Mapping
+inv_labels = {v: k for k, v in labels.items()}
+joblib.dump(inv_labels, os.path.join(MODEL_PATH, "inverse_label_map_normal.pkl"))
+
+# 5. Preprocessing Info
+joblib.dump({
+    "steps": [
+        "lowercase",
+        "remove_urls",
+        "remove_numbers",
+        "remove_special_characters",
+        "normalize_spaces"
+    ]
+}, os.path.join(MODEL_PATH, "preprocessing_normal.pkl"))
+
+# 6. Config (FULL REPRODUCIBILITY)
+config = {
+    "model": "LogisticRegression",
+    "max_iter": 300,
+    "vectorizer": {
+        "max_features": 20000,
+        "ngram_range": (1, 2),
+        "min_df": 2,
+        "max_df": 0.95
+    },
+    "data_split": {
+        "train": 0.7,
+        "val": 0.1,
+        "test": 0.2
+    },
+    "random_seed": SEED
+}
+
+joblib.dump(config, os.path.join(MODEL_PATH, "config_normal.pkl"))
+
+# 7. Label Distribution (for report/debug)
+joblib.dump(y.value_counts().to_dict(),
+            os.path.join(MODEL_PATH, "label_distribution_normal.pkl"))
+
+print("\n NORMAL LOGISTIC REGRESSION: EVERYTHING SAVED SUCCESSFULLY")
