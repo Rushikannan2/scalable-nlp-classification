@@ -27,7 +27,7 @@ IIT-Gandhinagar_Project/
 │   ├── utils/
 │   │   ├── preprocessing.py
 │   │   └── metrics.py
-│   └── Visualation/
+│   └── Visualization/
 │       └── Analysis.ipynb            # Confusion matrices, class distribution plots
 ├── experiments/
 │   ├── ml_results.txt                # Full classification reports for all ML models
