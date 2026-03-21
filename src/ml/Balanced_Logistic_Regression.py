@@ -24,10 +24,12 @@ MODEL_PATH = os.path.join(BASE_PATH, "final_models")
 RESULT_PATH = os.path.join(BASE_PATH, "experiments", "ml_results.txt")
 
 os.makedirs(MODEL_PATH, exist_ok=True)
+os.makedirs(os.path.dirname(RESULT_PATH), exist_ok=True)  # FIX
 
 # Preprocessing
 
 def preprocess(text):
+    text = str(text)  #  FIX (safe conversion)
     text = text.lower()
     text = re.sub(r'http\S+|www\S+', '', text)
     text = re.sub(r'\d+', '', text)
@@ -39,15 +41,17 @@ def preprocess(text):
 
 df = pd.read_csv(DATA_PATH)
 
+#  Safety check
+if "DATA" not in df.columns or "TOPIC" not in df.columns:
+    raise ValueError("CSV must contain 'DATA' and 'TOPIC' columns")
+
 X = df["DATA"].astype(str).apply(preprocess)
 y = df["TOPIC"]
-
 
 # Label Encoding
 
 labels = {label: idx for idx, label in enumerate(sorted(y.unique()))}
 y_encoded = y.map(labels)
-
 
 # Train / Val / Test Split
 
@@ -72,7 +76,6 @@ X_train_vec = vectorizer.fit_transform(X_train)
 X_val_vec = vectorizer.transform(X_val)
 X_test_vec = vectorizer.transform(X_test)
 
-
 # Model (Balanced Logistic)
 
 model = LogisticRegression(
@@ -82,11 +85,25 @@ model = LogisticRegression(
 
 model.fit(X_train_vec, y_train)
 
+#  PARAMETER COUNT (ADDED)
+
+num_features = X_train_vec.shape[1]
+num_classes = len(labels)
+
+# Logistic Regression parameters:
+# weights + bias
+total_params = (num_features * num_classes) + num_classes
+
+print("\n===== MODEL PARAMETERS =====")
+print(f"Features: {num_features}")
+print(f"Classes: {num_classes}")
+print(f"Total Parameters (weights + bias): {total_params:,}")
+
 # Evaluation
 
 def evaluate(name, y_true, y_pred):
     print(f"\n========== {name} RESULTS ==========\n")
-    report = classification_report(y_true, y_pred)
+    report = classification_report(y_true, y_pred, zero_division=0)
     print(report)
     return report
 
@@ -105,6 +122,11 @@ with open(RESULT_PATH, "a") as f:
     f.write("BALANCED LOGISTIC REGRESSION (FINAL)\n")
     f.write("="*80 + "\n\n")
 
+    #  PARAMETER INFO SAVED
+    f.write(f"Features: {num_features}\n")
+    f.write(f"Classes: {num_classes}\n")
+    f.write(f"Total Parameters: {total_params}\n\n")
+
     f.write("TRAIN RESULTS:\n")
     f.write(train_report + "\n\n")
 
@@ -116,20 +138,13 @@ with open(RESULT_PATH, "a") as f:
 
 # SAVE EVERYTHING 
 
-# 1. Model
 joblib.dump(model, os.path.join(MODEL_PATH, "balanced_logistic_model.pkl"))
-
-# 2. Vectorizer
 joblib.dump(vectorizer, os.path.join(MODEL_PATH, "tfidf_vectorizer_balanced.pkl"))
-
-# 3. Label Mapping
 joblib.dump(labels, os.path.join(MODEL_PATH, "label_map_balanced.pkl"))
 
-# 4. Reverse Mapping
 inv_labels = {v: k for k, v in labels.items()}
 joblib.dump(inv_labels, os.path.join(MODEL_PATH, "inverse_label_map_balanced.pkl"))
 
-# 5. Preprocessing Info
 joblib.dump({
     "steps": [
         "lowercase",
@@ -140,7 +155,6 @@ joblib.dump({
     ]
 }, os.path.join(MODEL_PATH, "preprocessing_balanced.pkl"))
 
-# 6. Config (FULL REPRODUCIBILITY)
 config = {
     "model": "LogisticRegression",
     "type": "balanced",
@@ -162,7 +176,6 @@ config = {
 
 joblib.dump(config, os.path.join(MODEL_PATH, "config_balanced.pkl"))
 
-# 7. Label Distribution
 joblib.dump(y.value_counts().to_dict(),
             os.path.join(MODEL_PATH, "label_distribution_balanced.pkl"))
 

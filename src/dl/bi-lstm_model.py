@@ -9,15 +9,17 @@ import os
 import random
 
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import classification_report, confusion_matrix
+from sklearn.metrics import classification_report, accuracy_score
 from collections import Counter
 
 
-# Reproducibility
+# ================= REPRODUCIBILITY =================
 
 SEED = 42
 torch.manual_seed(SEED)
-torch.cuda.manual_seed_all(SEED)
+
+if torch.cuda.is_available():
+    torch.cuda.manual_seed_all(SEED)
 
 np.random.seed(SEED)
 random.seed(SEED)
@@ -28,7 +30,7 @@ torch.backends.cudnn.benchmark = False
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
-# Paths
+# ================= PATHS =================
 
 BASE_PATH = r"D:\IIT-Gandhinagar_Project"
 DATA_PATH = os.path.join(BASE_PATH, "sample_100k.csv")
@@ -36,10 +38,14 @@ MODEL_PATH = os.path.join(BASE_PATH, "final_models")
 RESULT_PATH = os.path.join(BASE_PATH, "experiments", "dl_results.txt")
 
 os.makedirs(MODEL_PATH, exist_ok=True)
+os.makedirs(os.path.dirname(RESULT_PATH), exist_ok=True)
 
-# Preprocessing
+
+# ================= PREPROCESSING =================
 
 def preprocess(text):
+    text = str(text)
+    text = text.encode("ascii", "ignore").decode()
     text = text.lower()
     text = re.sub(r'http\S+|www\S+', '', text)
     text = re.sub(r'\d+', '', text)
@@ -48,21 +54,27 @@ def preprocess(text):
     return text
 
 
-# Feature Engineering
+# ================= EXTRA FEATURES =================
 
 def extract_features(text):
     words = text.split()
     return [
         len(words),
         np.mean([len(w) for w in words]) if words else 0,
-        text.count('!'),
-        text.count('?')
     ]
 
 
-# Load Data
+# ================= LOAD DATA =================
 
-df = pd.read_csv(DATA_PATH)
+try:
+    df = pd.read_csv(DATA_PATH, encoding='utf-8')
+except:
+    try:
+        df = pd.read_csv(DATA_PATH, encoding='latin1')
+    except:
+        df = pd.read_csv(DATA_PATH, encoding='cp1252')
+
+df = df.dropna(subset=["DATA", "TOPIC"])
 df["DATA"] = df["DATA"].astype(str).apply(preprocess)
 
 extra_features = np.array(df["DATA"].apply(extract_features).tolist())
@@ -70,14 +82,15 @@ extra_features = np.array(df["DATA"].apply(extract_features).tolist())
 X = df["DATA"]
 y = df["TOPIC"]
 
-# Label Encoding
+
+# ================= LABEL ENCODING =================
 
 labels = {label: idx for idx, label in enumerate(sorted(y.unique()))}
 inv_labels = {v: k for k, v in labels.items()}
 y_encoded = y.map(labels)
 
 
-# Split
+# ================= SPLIT =================
 
 X_train, X_temp, y_train, y_temp, f_train, f_temp = train_test_split(
     X, y_encoded, extra_features,
@@ -89,7 +102,8 @@ X_val, X_test, y_val, y_test, f_val, f_test = train_test_split(
     test_size=2/3, random_state=SEED, stratify=y_temp
 )
 
-# Tokenization
+
+# ================= TOKENIZATION =================
 
 def tokenize(text):
     words = text.split()
@@ -97,7 +111,7 @@ def tokenize(text):
     return words + bigrams
 
 
-# Vocabulary
+# ================= VOCAB =================
 
 counter = Counter()
 for text in X_train:
@@ -106,7 +120,8 @@ for text in X_train:
 MAX_VOCAB = 30000
 vocab = {word: i+1 for i, (word, _) in enumerate(counter.most_common(MAX_VOCAB))}
 
-# Encode + Pad
+
+# ================= ENCODE + PAD =================
 
 MAX_LEN = 120
 
@@ -131,13 +146,15 @@ y_train = torch.tensor(y_train.values, dtype=torch.long)
 y_val   = torch.tensor(y_val.values, dtype=torch.long)
 y_test  = torch.tensor(y_test.values, dtype=torch.long)
 
-# Class Weights
+
+# ================= CLASS WEIGHTS =================
 
 class_counts = np.bincount(y_train.numpy())
 class_weights = 1.0 / (class_counts + 1e-6)
 class_weights = torch.tensor(class_weights, dtype=torch.float).to(device)
 
-# Model
+
+# ================= MODEL =================
 
 class BiLSTMModel(nn.Module):
     def __init__(self, vocab_size, embed_dim, hidden_dim, num_classes, feat_dim):
@@ -157,16 +174,26 @@ class BiLSTMModel(nn.Module):
         x = self.dropout(self.norm(self.fc1(x)))
         return self.fc2(x)
 
+
 model = BiLSTMModel(
     vocab_size=MAX_VOCAB + 1,
     embed_dim=200,
     hidden_dim=256,
     num_classes=len(labels),
-    feat_dim=4
+    feat_dim=2
 ).to(device)
 
 
-# Training Setup
+# ================= PARAM COUNT =================
+
+total_params = sum(p.numel() for p in model.parameters())
+trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+
+print(f"Total Parameters: {total_params:,}")
+print(f"Trainable Parameters: {trainable_params:,}")
+
+
+# ================= TRAIN SETUP =================
 
 criterion = nn.CrossEntropyLoss(weight=class_weights)
 optimizer = optim.Adam(model.parameters(), lr=5e-4)
@@ -178,19 +205,13 @@ PATIENCE = 5
 best_val_loss = float('inf')
 patience_counter = 0
 
-history = {"train_loss": [], "val_loss": []}
 
-
-# Training
+# ================= TRAIN FUNCTION =================
 
 def run_epoch(X, F, y, train=True):
-    if train:
-        model.train()
-    else:
-        model.eval()
-
+    model.train() if train else model.eval()
     total_loss = 0
-    n_batches = 0
+    n_batches = 0   #  FIX
 
     with torch.set_grad_enabled(train):
         for i in range(0, len(X), BATCH_SIZE):
@@ -208,18 +229,16 @@ def run_epoch(X, F, y, train=True):
                 optimizer.step()
 
             total_loss += loss.item()
-            n_batches += 1
+            n_batches += 1   #  FIX
 
-    return total_loss / n_batches
+    return total_loss / n_batches   #  FIX
 
-# Training Loop
+
+# ================= TRAIN LOOP =================
 
 for epoch in range(EPOCHS):
     train_loss = run_epoch(X_train_seq, f_train, y_train, True)
     val_loss   = run_epoch(X_val_seq, f_val, y_val, False)
-
-    history["train_loss"].append(train_loss)
-    history["val_loss"].append(val_loss)
 
     print(f"Epoch {epoch+1} | Train: {train_loss:.4f} | Val: {val_loss:.4f}")
 
@@ -227,26 +246,24 @@ for epoch in range(EPOCHS):
         best_val_loss = val_loss
         patience_counter = 0
         torch.save(model.state_dict(), os.path.join(MODEL_PATH, "bilstm_best.pth"))
-        print(" Best model saved")
     else:
         patience_counter += 1
 
     if patience_counter >= PATIENCE:
-        print(" Early stopping")
+        print("Early stopping")
         break
 
 
-# LOAD BEST MODEL
+# ================= LOAD BEST =================
 
 model.load_state_dict(torch.load(os.path.join(MODEL_PATH, "bilstm_best.pth")))
-print(" Loaded BEST model")
 
 
-# Evaluation
+# ================= EVALUATION =================
 
 def evaluate(X, F, y, name):
     model.eval()
-    preds, probs = [], []
+    preds = []
 
     with torch.no_grad():
         for i in range(0, len(X), BATCH_SIZE):
@@ -254,48 +271,44 @@ def evaluate(X, F, y, name):
             fb = F[i:i+BATCH_SIZE].to(device)
 
             outputs = model(xb, fb)
-            prob = torch.softmax(outputs, dim=1)
-
-            pred = torch.argmax(prob, dim=1)
-
+            pred = torch.argmax(outputs, dim=1)
             preds.extend(pred.cpu().numpy())
-            probs.extend(prob.cpu().numpy())
+
+    #  FIX (GPU safe)
+    y_true = y.cpu().numpy()
+
+    acc = accuracy_score(y_true, preds)
 
     report = classification_report(
-        y.numpy(),
+        y_true,
         preds,
-        target_names=[str(inv_labels[i]) for i in range(len(inv_labels))],
-        digits=2,
         zero_division=0
     )
 
-    print(f"\n========== {name} RESULTS ==========\n")
+    print(f"\n========== {name} RESULTS ==========")
+    print(f"Accuracy: {acc:.4f}\n")
     print(report)
 
-    # Save outputs
-    np.save(os.path.join(MODEL_PATH, f"{name}_preds.npy"), preds)
-    np.save(os.path.join(MODEL_PATH, f"{name}_probs.npy"), probs)
-    np.save(os.path.join(MODEL_PATH, f"{name}_labels.npy"), y.numpy())
+    return acc, report
 
-    cm = confusion_matrix(y.numpy(), preds)
-    np.save(os.path.join(MODEL_PATH, f"{name}_confusion.npy"), cm)
 
-    return report
+train_acc, train_report = evaluate(X_train_seq, f_train, y_train, "TRAIN")
+val_acc, val_report     = evaluate(X_val_seq, f_val, y_val, "VALIDATION")
+test_acc, test_report   = evaluate(X_test_seq, f_test, y_test, "TEST")
 
-train_report = evaluate(X_train_seq, f_train, y_train, "TRAIN")
-val_report   = evaluate(X_val_seq, f_val, y_val, "VALIDATION")
-test_report  = evaluate(X_test_seq, f_test, y_test, "TEST")
 
-# Save Everything
-
-joblib.dump(vocab, os.path.join(MODEL_PATH, "vocab.pkl"))
-joblib.dump(labels, os.path.join(MODEL_PATH, "labels.pkl"))
-joblib.dump(inv_labels, os.path.join(MODEL_PATH, "inv_labels.pkl"))
-joblib.dump(history, os.path.join(MODEL_PATH, "history.pkl"))
+# ================= SAVE =================
 
 with open(RESULT_PATH, "a") as f:
     f.write("\n" + "="*80 + "\n")
     f.write("FINAL BiLSTM\n\n")
+    f.write(f"Total Parameters: {total_params}\n")
+    f.write(f"Trainable Parameters: {trainable_params}\n\n")
+
+    f.write(f"TRAIN ACC: {train_acc:.4f}\n")
+    f.write(f"VAL ACC: {val_acc:.4f}\n")
+    f.write(f"TEST ACC: {test_acc:.4f}\n\n")
+
     f.write("TRAIN:\n" + train_report + "\n\n")
     f.write("VAL:\n" + val_report + "\n\n")
     f.write("TEST:\n" + test_report + "\n")

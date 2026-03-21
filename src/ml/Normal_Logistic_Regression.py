@@ -7,7 +7,7 @@ import random
 
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import classification_report
+from sklearn.metrics import classification_report, accuracy_score
 from sklearn.model_selection import train_test_split
 
 
@@ -30,6 +30,7 @@ os.makedirs(MODEL_PATH, exist_ok=True)
 # Preprocessing
 
 def preprocess(text):
+    text = str(text)
     text = text.lower()
     text = re.sub(r'http\S+|www\S+', '', text)
     text = re.sub(r'\d+', '', text)
@@ -37,9 +38,11 @@ def preprocess(text):
     text = re.sub(r'\s+', ' ', text).strip()
     return text
 
+
 # Load Data
 
 df = pd.read_csv(DATA_PATH)
+df = df.dropna(subset=["DATA", "TOPIC"])   # ✅ safety fix
 
 X = df["DATA"].astype(str).apply(preprocess)
 y = df["TOPIC"]
@@ -49,6 +52,7 @@ y = df["TOPIC"]
 
 labels = {label: idx for idx, label in enumerate(sorted(y.unique()))}
 y_encoded = y.map(labels)
+
 
 # Train / Val / Test Split
 
@@ -84,21 +88,47 @@ model = LogisticRegression(
 model.fit(X_train_vec, y_train)
 
 
+# PARAMETER COUNT
+
+num_features = X_train_vec.shape[1]
+num_classes = len(labels)
+
+# weights + bias
+total_params = (num_features * num_classes) + num_classes
+
+print("\n===== MODEL PARAMETERS =====")
+print(f"Features: {num_features}")
+print(f"Classes: {num_classes}")
+print(f"Total Parameters: {total_params:,}")
+
+
 # Evaluation
 
 def evaluate(name, y_true, y_pred):
     print(f"\n========== {name} RESULTS ==========\n")
-    report = classification_report(y_true, y_pred)
+
+    acc = accuracy_score(y_true, y_pred)   # ✅ added accuracy
+    print(f"Accuracy: {acc:.4f}\n")
+
+    report = classification_report(y_true, y_pred, zero_division=0)
     print(report)
-    return report
+
+    return acc, report
+
+
+# Predictions
 
 train_pred = model.predict(X_train_vec)
 val_pred = model.predict(X_val_vec)
 test_pred = model.predict(X_test_vec)
 
-train_report = evaluate("TRAIN", y_train, train_pred)
-val_report = evaluate("VALIDATION", y_val, val_pred)
-test_report = evaluate("TEST", y_test, test_pred)
+
+# Evaluate
+
+train_acc, train_report = evaluate("TRAIN", y_train, train_pred)
+val_acc, val_report = evaluate("VALIDATION", y_val, val_pred)
+test_acc, test_report = evaluate("TEST", y_test, test_pred)
+
 
 # Save Results
 
@@ -107,6 +137,17 @@ with open(RESULT_PATH, "a") as f:
     f.write("NORMAL LOGISTIC REGRESSION (FINAL)\n")
     f.write("="*80 + "\n\n")
 
+    # Model info
+    f.write(f"Features: {num_features}\n")
+    f.write(f"Classes: {num_classes}\n")
+    f.write(f"Total Parameters: {total_params}\n\n")
+
+    # Accuracy
+    f.write(f"TRAIN ACCURACY: {train_acc:.4f}\n")
+    f.write(f"VALIDATION ACCURACY: {val_acc:.4f}\n")
+    f.write(f"TEST ACCURACY: {test_acc:.4f}\n\n")
+
+    # Reports
     f.write("TRAIN RESULTS:\n")
     f.write(train_report + "\n\n")
 
@@ -119,21 +160,13 @@ with open(RESULT_PATH, "a") as f:
 
 # SAVE EVERYTHING 
 
-
-# 1. Model
 joblib.dump(model, os.path.join(MODEL_PATH, "normal_logistic_model.pkl"))
-
-# 2. Vectorizer
 joblib.dump(vectorizer, os.path.join(MODEL_PATH, "tfidf_vectorizer_normal.pkl"))
-
-# 3. Label Mapping
 joblib.dump(labels, os.path.join(MODEL_PATH, "label_map_normal.pkl"))
 
-# 4. Reverse Mapping
 inv_labels = {v: k for k, v in labels.items()}
 joblib.dump(inv_labels, os.path.join(MODEL_PATH, "inverse_label_map_normal.pkl"))
 
-# 5. Preprocessing Info
 joblib.dump({
     "steps": [
         "lowercase",
@@ -144,7 +177,6 @@ joblib.dump({
     ]
 }, os.path.join(MODEL_PATH, "preprocessing_normal.pkl"))
 
-# 6. Config (FULL REPRODUCIBILITY)
 config = {
     "model": "LogisticRegression",
     "max_iter": 300,
@@ -164,7 +196,6 @@ config = {
 
 joblib.dump(config, os.path.join(MODEL_PATH, "config_normal.pkl"))
 
-# 7. Label Distribution (for report/debug)
 joblib.dump(y.value_counts().to_dict(),
             os.path.join(MODEL_PATH, "label_distribution_normal.pkl"))
 

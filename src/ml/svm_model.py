@@ -4,11 +4,10 @@ import re
 import os
 import joblib
 import random
-import json
 
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.svm import LinearSVC
-from sklearn.metrics import classification_report
+from sklearn.metrics import classification_report, accuracy_score, confusion_matrix
 from sklearn.model_selection import train_test_split
 
 # Reproducibility
@@ -16,7 +15,6 @@ from sklearn.model_selection import train_test_split
 SEED = 42
 random.seed(SEED)
 np.random.seed(SEED)
-
 
 # Paths
 
@@ -27,10 +25,10 @@ RESULT_PATH = os.path.join(BASE_PATH, "experiments", "ml_results.txt")
 
 os.makedirs(MODEL_PATH, exist_ok=True)
 
-
 # Preprocessing
 
 def preprocess(text):
+    text = str(text)
     text = text.lower()
     text = re.sub(r'http\S+|www\S+', '', text)
     text = re.sub(r'\d+', '', text)
@@ -45,13 +43,12 @@ df = pd.read_csv(DATA_PATH)
 X = df["DATA"].astype(str).apply(preprocess)
 y = df["TOPIC"]
 
-
-# Label Encoding (IMPORTANT SAVE)
+# Label Encoding
 
 labels = {label: idx for idx, label in enumerate(sorted(y.unique()))}
 y_encoded = y.map(labels)
 
-# Train / Val / Test Split
+# Split
 
 X_train, X_temp, y_train, y_temp = train_test_split(
     X, y_encoded, test_size=0.3, random_state=SEED, stratify=y_encoded
@@ -61,7 +58,7 @@ X_val, X_test, y_val, y_test = train_test_split(
     X_temp, y_temp, test_size=2/3, random_state=SEED, stratify=y_temp
 )
 
-# TF-IDF Vectorizer
+# TF-IDF
 
 vectorizer = TfidfVectorizer(
     max_features=20000,
@@ -83,15 +80,31 @@ model = LinearSVC(
 
 model.fit(X_train_vec, y_train)
 
+#  PARAMETER COUNT
 
-# Evaluation Function
+num_features = X_train_vec.shape[1]
+num_classes = len(labels)
+total_params = num_features * num_classes
+
+print(f"\n===== MODEL PARAMETERS =====")
+print(f"Features: {num_features}")
+print(f"Classes: {num_classes}")
+print(f"Approx Parameters: {total_params:,}")
+
+#  UPDATED EVALUATION FUNCTION
 
 def evaluate(name, y_true, y_pred):
-    print(f"\n========== {name} RESULTS ==========\n")
-    report = classification_report(y_true, y_pred)
-    print(report)
-    return report
+    acc = accuracy_score(y_true, y_pred)
+    report = classification_report(y_true, y_pred, zero_division=0)
+    cm = confusion_matrix(y_true, y_pred)
 
+    print(f"\n========== {name} RESULTS ==========\n")
+    print(f"Accuracy: {acc:.4f}\n")
+    print(report)
+    print("Confusion Matrix:")
+    print(cm)
+
+    return acc, report, cm
 
 # Predictions
 
@@ -99,10 +112,9 @@ train_pred = model.predict(X_train_vec)
 val_pred = model.predict(X_val_vec)
 test_pred = model.predict(X_test_vec)
 
-train_report = evaluate("TRAIN", y_train, train_pred)
-val_report = evaluate("VALIDATION", y_val, val_pred)
-test_report = evaluate("TEST", y_test, test_pred)
-
+train_acc, train_report, train_cm = evaluate("TRAIN", y_train, train_pred)
+val_acc, val_report, val_cm = evaluate("VALIDATION", y_val, val_pred)
+test_acc, test_report, test_cm = evaluate("TEST", y_test, test_pred)
 
 # Save Results
 
@@ -111,33 +123,40 @@ with open(RESULT_PATH, "a") as f:
     f.write("SVM (LinearSVC) FINAL\n")
     f.write("="*80 + "\n\n")
 
+    f.write(f"Features: {num_features}\n")
+    f.write(f"Classes: {num_classes}\n")
+    f.write(f"Approx Parameters: {total_params}\n\n")
+
+    # TRAIN
     f.write("TRAIN RESULTS:\n")
-    f.write(train_report + "\n\n")
+    f.write(f"Accuracy: {train_acc}\n")
+    f.write(train_report + "\n")
+    f.write("Confusion Matrix:\n")
+    f.write(np.array2string(train_cm) + "\n\n")
 
+    # VAL
     f.write("VALIDATION RESULTS:\n")
-    f.write(val_report + "\n\n")
+    f.write(f"Accuracy: {val_acc}\n")
+    f.write(val_report + "\n")
+    f.write("Confusion Matrix:\n")
+    f.write(np.array2string(val_cm) + "\n\n")
 
+    # TEST
     f.write("TEST RESULTS:\n")
+    f.write(f"Accuracy: {test_acc}\n")
     f.write(test_report + "\n")
+    f.write("Confusion Matrix:\n")
+    f.write(np.array2string(test_cm) + "\n")
 
+# Save Everything
 
-# SAVE EVERYTHING (IMPORTANT )
-
-
-# 1. Model
 joblib.dump(model, os.path.join(MODEL_PATH, "svm_model.pkl"))
-
-# 2. Vectorizer
 joblib.dump(vectorizer, os.path.join(MODEL_PATH, "tfidf_vectorizer.pkl"))
-
-# 3. Label Mapping
 joblib.dump(labels, os.path.join(MODEL_PATH, "label_map.pkl"))
 
-# 4. Reverse Label Mapping (VERY USEFUL)
 inv_labels = {v: k for k, v in labels.items()}
 joblib.dump(inv_labels, os.path.join(MODEL_PATH, "inverse_label_map.pkl"))
 
-# 5. Preprocessing Description
 joblib.dump({
     "steps": [
         "lowercase",
@@ -148,7 +167,6 @@ joblib.dump({
     ]
 }, os.path.join(MODEL_PATH, "preprocessing.pkl"))
 
-# 6. Config (FULL REPRODUCIBILITY)
 config = {
     "model": "LinearSVC",
     "max_iter": 2000,
@@ -168,8 +186,7 @@ config = {
 
 joblib.dump(config, os.path.join(MODEL_PATH, "config.pkl"))
 
-# 7. Label Distribution (for report/debug)
 joblib.dump(y.value_counts().to_dict(),
             os.path.join(MODEL_PATH, "label_distribution.pkl"))
 
-print("\n EVERYTHING saved successfully (MODEL + CONFIG + PREPROCESSING + LABELS)")
+print("\n EVERYTHING saved successfully (FULLY UPDATED + ACCURACY + CM)")

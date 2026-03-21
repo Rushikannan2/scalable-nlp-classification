@@ -9,7 +9,7 @@ import os
 import random
 
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import classification_report
+from sklearn.metrics import classification_report, accuracy_score
 from collections import Counter
 
 
@@ -17,10 +17,18 @@ from collections import Counter
 
 SEED = 42
 torch.manual_seed(SEED)
+
+if torch.cuda.is_available():
+    torch.cuda.manual_seed_all(SEED)
+
 np.random.seed(SEED)
 random.seed(SEED)
 
+torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark = False
+
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
 
 # PATHS
 
@@ -30,10 +38,14 @@ MODEL_PATH = os.path.join(BASE_PATH, "final_models")
 RESULT_PATH = os.path.join(BASE_PATH, "experiments", "dl_results.txt")
 
 os.makedirs(MODEL_PATH, exist_ok=True)
+os.makedirs(os.path.dirname(RESULT_PATH), exist_ok=True)
+
 
 # PREPROCESSING
 
 def preprocess(text):
+    text = str(text)
+    text = text.encode("ascii", "ignore").decode()
     text = text.lower()
     text = re.sub(r'http\S+|www\S+', '', text)
     text = re.sub(r'\d+', '', text)
@@ -41,18 +53,29 @@ def preprocess(text):
     text = re.sub(r'\s+', ' ', text).strip()
     return text
 
+
 # LOAD DATA
 
-df = pd.read_csv(DATA_PATH)
+try:
+    df = pd.read_csv(DATA_PATH, encoding='utf-8')
+except:
+    try:
+        df = pd.read_csv(DATA_PATH, encoding='latin1')
+    except:
+        df = pd.read_csv(DATA_PATH, encoding='cp1252')
+
+df = df.dropna(subset=["DATA", "TOPIC"])
 
 X = df["DATA"].astype(str).apply(preprocess)
 y = df["TOPIC"]
+
 
 # LABEL ENCODING
 
 labels = {label: idx for idx, label in enumerate(sorted(y.unique()))}
 inv_labels = {v: k for k, v in labels.items()}
 y_encoded = y.map(labels)
+
 
 # SPLIT
 
@@ -63,6 +86,7 @@ X_train, X_temp, y_train, y_temp = train_test_split(
 X_val, X_test, y_val, y_test = train_test_split(
     X_temp, y_temp, test_size=2/3, random_state=SEED, stratify=y_temp
 )
+
 
 # TOKENIZATION
 
@@ -124,12 +148,23 @@ class LSTMModel(nn.Module):
         x = self.dropout(hidden[-1])
         return self.fc(x)
 
+
 model = LSTMModel(
     vocab_size=MAX_VOCAB + 1,
     embed_dim=128,
     hidden_dim=128,
     num_classes=len(labels)
 ).to(device)
+
+
+# PARAMETER COUNT
+
+total_params = sum(p.numel() for p in model.parameters())
+trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+
+print(f"Total Parameters: {total_params:,}")
+print(f"Trainable Parameters: {trainable_params:,}")
+
 
 # TRAINING SETUP
 
@@ -142,6 +177,7 @@ PATIENCE = 2
 
 best_val_loss = float('inf')
 patience_counter = 0
+
 
 # TRAINING FUNCTIONS
 
@@ -203,7 +239,7 @@ for epoch in range(EPOCHS):
         break
 
 
-# PREDICTION FUNCTION
+# PREDICTION
 
 def predict(X):
     model.eval()
@@ -219,41 +255,50 @@ def predict(X):
     return np.array(preds)
 
 
-# EVALUATION FUNCTION
+# EVALUATION (WITH ACCURACY)
 
 def evaluate_split(name, X, y):
     preds = predict(X)
+    y_true = y.cpu().numpy()
+
+    acc = accuracy_score(y_true, preds)
 
     report = classification_report(
-        y.cpu().numpy(),
+        y_true,
         preds,
         zero_division=0
     )
 
-    print(f"\n========== {name} RESULTS ==========\n")
+    print(f"\n========== {name} RESULTS ==========")
+    print(f"Accuracy: {acc:.4f}\n")
     print(report)
 
-    return report
+    return acc, report
 
-# FINAL EVALUATION
 
-train_report = evaluate_split("TRAIN", X_train_seq, y_train)
-val_report   = evaluate_split("VALIDATION", X_val_seq, y_val)
-test_report  = evaluate_split("TEST", X_test_seq, y_test)
+train_acc, train_report = evaluate_split("TRAIN", X_train_seq, y_train)
+val_acc, val_report     = evaluate_split("VALIDATION", X_val_seq, y_val)
+test_acc, test_report   = evaluate_split("TEST", X_test_seq, y_test)
 
 
 # SAVE REPORTS
 
 with open(RESULT_PATH, "w") as f:
-    f.write("========== TRAIN RESULTS ==========\n\n")
-    f.write(train_report)
-    f.write("\n\n========== VALIDATION RESULTS ==========\n\n")
-    f.write(val_report)
-    f.write("\n\n========== TEST RESULTS ==========\n\n")
-    f.write(test_report)
+    f.write("========== MODEL INFO ==========\n")
+    f.write(f"Total Parameters: {total_params}\n")
+    f.write(f"Trainable Parameters: {trainable_params}\n\n")
+
+    f.write(f"TRAIN Accuracy: {train_acc:.4f}\n")
+    f.write(train_report + "\n\n")
+
+    f.write(f"VALIDATION Accuracy: {val_acc:.4f}\n")
+    f.write(val_report + "\n\n")
+
+    f.write(f"TEST Accuracy: {test_acc:.4f}\n")
+    f.write(test_report + "\n")
 
 
-# SAVE MODEL + ARTIFACTS
+# SAVE MODEL
 
 torch.save(model.state_dict(), os.path.join(MODEL_PATH, "lstm_final.pth"))
 
@@ -261,24 +306,4 @@ joblib.dump(vocab, os.path.join(MODEL_PATH, "lstm_vocab.pkl"))
 joblib.dump(labels, os.path.join(MODEL_PATH, "lstm_labels.pkl"))
 joblib.dump(inv_labels, os.path.join(MODEL_PATH, "lstm_inverse_labels.pkl"))
 
-config = {
-    "model": "LSTM",
-    "vocab_size": MAX_VOCAB,
-    "embed_dim": 128,
-    "hidden_dim": 128,
-    "max_len": MAX_LEN,
-    "epochs": EPOCHS,
-    "batch_size": BATCH_SIZE,
-    "learning_rate": 0.001,
-    "seed": SEED
-}
-
-joblib.dump(config, os.path.join(MODEL_PATH, "lstm_config.pkl"))
-
-joblib.dump({"type": "basic_cleaning"},
-            os.path.join(MODEL_PATH, "lstm_preprocessing.pkl"))
-
-joblib.dump(y.value_counts().to_dict(),
-            os.path.join(MODEL_PATH, "lstm_label_distribution.pkl"))
-
-print("\n LSTM FULLY SAVED (PRODUCTION READY)")
+print("\n LSTM FULLY SAVED (FINAL WITH ACCURACY)")
