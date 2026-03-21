@@ -9,12 +9,6 @@ venv/
 *.parquet
 *.csv
 
-# Models
-*.pt
-*.pth
-*.pkl
-*.npy 
-
 # Logs
 *.log
 
