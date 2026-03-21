@@ -272,6 +272,9 @@ The preprocessing applied at inference is identical to training:
 
 ---
 
+### Report PDF: https://drive.google.com/file/d/1ETb9qB_lpLuG6O7oCTN63l7bNFkfujcL/view?usp=sharing
+
+
 ## Experimental Logs
 
 Full per-class precision, recall, F1-score, and confusion matrices for every model and every split (train / validation / test) are saved in:
