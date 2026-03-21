@@ -1,8 +1,164 @@
-========== MODEL INFO ==========
-Total Parameters: 2695320
-Trainable Parameters: 2695320
+=========================================================================================================
+Bi-LSTM
+=========================================================================================================
 
-TRAIN Accuracy: 0.8422
+Total Parameters: 7,076,704
+Trainable Parameters: 7,076,704
+Epoch 1 | Train: 2.0313 | Val: 1.5584
+Epoch 2 | Train: 1.3668 | Val: 1.2646
+Epoch 3 | Train: 1.1158 | Val: 1.1750
+Epoch 4 | Train: 0.9497 | Val: 1.0966
+Epoch 5 | Train: 0.8000 | Val: 1.0797
+Epoch 6 | Train: 0.6774 | Val: 1.0765
+Epoch 7 | Train: 0.5715 | Val: 1.0654
+Epoch 8 | Train: 0.4950 | Val: 1.0892
+Epoch 9 | Train: 0.4285 | Val: 1.1280
+Epoch 10 | Train: 0.3872 | Val: 1.1826
+Epoch 11 | Train: 0.3307 | Val: 1.2591
+Epoch 12 | Train: 0.3104 | Val: 1.2561
+Early stopping
+
+========== TRAIN RESULTS ==========
+Accuracy: 0.8496
+
+              precision    recall  f1-score   support
+
+           0       1.00      0.98      0.99       889
+           1       0.28      0.74      0.41       284
+           2       0.74      0.93      0.82      2485
+           3       0.93      0.86      0.89      6832
+           4       0.76      0.90      0.82       867
+           5       0.98      0.79      0.87      5262
+           6       0.41      0.87      0.56       251
+           7       0.98      0.88      0.93     10212
+           8       0.92      0.92      0.92       671
+           9       0.28      0.90      0.43       184
+          10       0.60      0.80      0.69       941
+          11       0.78      0.83      0.80      1709
+          12       0.95      0.94      0.94      2754
+          13       0.13      0.96      0.23       436
+          14       0.78      0.87      0.83      2194
+          15       0.81      0.75      0.78      3939
+          16       0.94      0.82      0.88      2755
+          17       0.91      0.80      0.85     10646
+          18       0.88      0.88      0.88      1181
+          19       0.92      0.84      0.88      3930
+          20       0.83      0.88      0.85      4281
+          21       0.97      0.85      0.91      3477
+          22       0.98      0.91      0.94      3156
+          23       0.79      0.88      0.83       664
+
+    accuracy                           0.85     70000
+   macro avg       0.77      0.87      0.79     70000
+weighted avg       0.90      0.85      0.87     70000
+
+
+========== VALIDATION RESULTS ==========
+Accuracy: 0.7961
+
+              precision    recall  f1-score   support
+
+           0       0.99      0.98      0.99       127
+           1       0.11      0.24      0.15        41
+           2       0.68      0.86      0.76       355
+           3       0.89      0.81      0.85       976
+           4       0.69      0.75      0.72       124
+           5       0.95      0.75      0.84       752
+           6       0.26      0.56      0.35        36
+           7       0.97      0.87      0.92      1459
+           8       0.89      0.76      0.82        96
+           9       0.08      0.27      0.12        26
+          10       0.37      0.54      0.44       135
+          11       0.67      0.70      0.69       244
+          12       0.91      0.93      0.92       393
+          13       0.08      0.63      0.14        62
+          14       0.74      0.75      0.75       313
+          15       0.71      0.66      0.68       562
+          16       0.90      0.83      0.86       394
+          17       0.87      0.78      0.82      1521
+          18       0.84      0.78      0.81       169
+          19       0.89      0.81      0.85       561
+          20       0.79      0.80      0.79       612
+          21       0.93      0.78      0.85       496
+          22       0.97      0.90      0.94       451
+          23       0.67      0.72      0.69        95
+
+    accuracy                           0.80     10000
+   macro avg       0.70      0.73      0.70     10000
+weighted avg       0.85      0.80      0.82     10000
+
+
+========== TEST RESULTS ==========
+Accuracy: 0.7986
+
+              precision    recall  f1-score   support
+
+           0       0.98      0.98      0.98       254
+           1       0.11      0.33      0.17        81
+           2       0.69      0.86      0.76       710
+           3       0.89      0.81      0.85      1952
+           4       0.71      0.78      0.75       247
+           5       0.95      0.74      0.84      1503
+           6       0.25      0.59      0.35        71
+           7       0.97      0.88      0.92      2917
+           8       0.79      0.73      0.76       191
+           9       0.06      0.23      0.10        53
+          10       0.41      0.54      0.47       269
+          11       0.68      0.70      0.69       488
+          12       0.89      0.90      0.90       787
+          13       0.08      0.67      0.15       125
+          14       0.74      0.80      0.77       627
+          15       0.74      0.70      0.72      1126
+          16       0.91      0.79      0.84       787
+          17       0.89      0.76      0.82      3042
+          18       0.78      0.76      0.77       338
+          19       0.90      0.83      0.86      1123
+          20       0.76      0.81      0.78      1223
+          21       0.95      0.82      0.88       994
+          22       0.98      0.90      0.94       902
+          23       0.64      0.66      0.65       190
+
+    accuracy                           0.80     20000
+   macro avg       0.70      0.73      0.70     20000
+weighted avg       0.86      0.80      0.82     20000
+
+
+ EVERYTHING SAVED PERFECTLY (FINAL VERSION)
+
+
+
+=========================================================================================================
+LSTM
+=========================================================================================================
+
+LSTM
+
+(venv) PS D:\IIT-Gandhinagar_Project> python src\dl\lstm_model.py
+Total Parameters: 2,695,320
+Trainable Parameters: 2,695,320
+Epoch 1 | Train Loss: 718.3910 | Val Loss: 90.8461
+Best model saved
+Epoch 2 | Train Loss: 563.2167 | Val Loss: 74.7122
+Best model saved
+Epoch 3 | Train Loss: 464.7202 | Val Loss: 63.4315
+Best model saved
+Epoch 4 | Train Loss: 373.5520 | Val Loss: 52.8536
+Best model saved
+Epoch 5 | Train Loss: 311.5781 | Val Loss: 46.6048
+Best model saved
+Epoch 6 | Train Loss: 269.3887 | Val Loss: 43.7079
+Best model saved
+Epoch 7 | Train Loss: 241.9462 | Val Loss: 42.5694
+Best model saved
+Epoch 8 | Train Loss: 213.0270 | Val Loss: 40.6965
+Best model saved
+Epoch 9 | Train Loss: 187.7827 | Val Loss: 40.8630
+Epoch 10 | Train Loss: 179.1775 | Val Loss: 42.1271
+Early stopping triggered
+
+========== TRAIN RESULTS ==========
+Accuracy: 0.8422
+
               precision    recall  f1-score   support
 
            0       0.81      0.97      0.88       889
@@ -35,7 +191,9 @@ TRAIN Accuracy: 0.8422
 weighted avg       0.89      0.84      0.86     70000
 
 
-VALIDATION Accuracy: 0.7983
+========== VALIDATION RESULTS ==========
+Accuracy: 0.7983
+
               precision    recall  f1-score   support
 
            0       0.80      0.98      0.88       127
@@ -68,7 +226,9 @@ VALIDATION Accuracy: 0.7983
 weighted avg       0.87      0.80      0.82     10000
 
 
-TEST Accuracy: 0.8020
+========== TEST RESULTS ==========
+Accuracy: 0.8020
+
               precision    recall  f1-score   support
 
            0       0.81      0.98      0.89       254
@@ -100,3 +260,5 @@ TEST Accuracy: 0.8020
    macro avg       0.67      0.74      0.68     20000
 weighted avg       0.86      0.80      0.83     20000
 
+
+ LSTM FULLY SAVED (FINAL WITH ACCURACY)
