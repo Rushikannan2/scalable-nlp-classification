@@ -40,7 +40,7 @@ IIT-Gandhinagar_Project/
 └── .gitignore
 ```
 
-> **Note:** All binary artifacts (`.pkl`, `.pt`, `.pth`, `.npy`, `.csv`, `.parquet`) are excluded from the repository via `.gitignore`. You must generate `sample_100k.csv` and retrain to reproduce `final_models/`.
+> **Note:** All binary artifacts (`.csv`, `.parquet`) are excluded from the repository via `.gitignore`. You must generate `sample_100k.csv` and retrain to reproduce `final_models/`.
 
 ---
 
