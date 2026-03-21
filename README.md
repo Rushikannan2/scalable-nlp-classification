@@ -32,7 +32,7 @@ IIT-Gandhinagar_Project/
 ├── experiments/
 │   ├── ml_results.txt                # Full classification reports for all ML models
 │   └── dl_results.txt                # Full classification reports + loss curves for DL models
-├── final_models/                     # Saved model artifacts (gitignored — see note below)
+├── final_models/                     # Saved model artifacts
 ├── dataset_10M.parquet               # Full 10M corpus (gitignored)
 ├── sample_100k.csv                   # 100K stratified sample (gitignored)
 ├── requirements.txt
