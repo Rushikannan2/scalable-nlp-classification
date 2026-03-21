@@ -13,7 +13,7 @@ from sklearn.metrics import classification_report
 from collections import Counter
 
 
-# Reproducibility
+# REPRODUCIBILITY
 
 SEED = 42
 torch.manual_seed(SEED)
@@ -22,8 +22,7 @@ random.seed(SEED)
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-
-# Paths
+# PATHS
 
 BASE_PATH = r"D:\IIT-Gandhinagar_Project"
 DATA_PATH = os.path.join(BASE_PATH, "sample_100k.csv")
@@ -32,7 +31,7 @@ RESULT_PATH = os.path.join(BASE_PATH, "experiments", "dl_results.txt")
 
 os.makedirs(MODEL_PATH, exist_ok=True)
 
-# Preprocessing
+# PREPROCESSING
 
 def preprocess(text):
     text = text.lower()
@@ -42,21 +41,20 @@ def preprocess(text):
     text = re.sub(r'\s+', ' ', text).strip()
     return text
 
-
-# Load Data
+# LOAD DATA
 
 df = pd.read_csv(DATA_PATH)
 
 X = df["DATA"].astype(str).apply(preprocess)
 y = df["TOPIC"]
 
-# Label Encoding
+# LABEL ENCODING
 
 labels = {label: idx for idx, label in enumerate(sorted(y.unique()))}
 inv_labels = {v: k for k, v in labels.items()}
 y_encoded = y.map(labels)
 
-# Split
+# SPLIT
 
 X_train, X_temp, y_train, y_temp = train_test_split(
     X, y_encoded, test_size=0.3, random_state=SEED, stratify=y_encoded
@@ -66,7 +64,7 @@ X_val, X_test, y_val, y_test = train_test_split(
     X_temp, y_temp, test_size=2/3, random_state=SEED, stratify=y_temp
 )
 
-# Tokenization + Vocab
+# TOKENIZATION
 
 def tokenize(text):
     return text.split()
@@ -79,7 +77,7 @@ MAX_VOCAB = 20000
 vocab = {word: i+1 for i, (word, _) in enumerate(counter.most_common(MAX_VOCAB))}
 
 
-# Encode + Pad
+# ENCODE + PAD
 
 MAX_LEN = 100
 
@@ -95,21 +93,22 @@ def pad(seqs):
     return torch.tensor(padded, dtype=torch.long)
 
 X_train_seq = pad([encode(t) for t in X_train]).to(device)
-X_val_seq = pad([encode(t) for t in X_val]).to(device)
-X_test_seq = pad([encode(t) for t in X_test]).to(device)
+X_val_seq   = pad([encode(t) for t in X_val]).to(device)
+X_test_seq  = pad([encode(t) for t in X_test]).to(device)
 
 y_train = torch.tensor(y_train.values, dtype=torch.long).to(device)
-y_val = torch.tensor(y_val.values, dtype=torch.long).to(device)
-y_test = torch.tensor(y_test.values, dtype=torch.long).to(device)
+y_val   = torch.tensor(y_val.values, dtype=torch.long).to(device)
+y_test  = torch.tensor(y_test.values, dtype=torch.long).to(device)
 
 
-# Class Weights
+# CLASS WEIGHTS
 
 class_counts = np.bincount(y_train.cpu().numpy())
 class_weights = 1.0 / (class_counts + 1e-6)
 class_weights = torch.tensor(class_weights, dtype=torch.float).to(device)
 
-# Model
+
+# MODEL
 
 class LSTMModel(nn.Module):
     def __init__(self, vocab_size, embed_dim, hidden_dim, num_classes):
@@ -132,8 +131,7 @@ model = LSTMModel(
     num_classes=len(labels)
 ).to(device)
 
-
-# Training Setup
+# TRAINING SETUP
 
 criterion = nn.CrossEntropyLoss(weight=class_weights)
 optimizer = optim.Adam(model.parameters(), lr=0.001)
@@ -145,12 +143,12 @@ PATIENCE = 2
 best_val_loss = float('inf')
 patience_counter = 0
 
-
-# Training
+# TRAINING FUNCTIONS
 
 def train_epoch():
     model.train()
     total_loss = 0
+
     for i in range(0, len(X_train_seq), BATCH_SIZE):
         xb = X_train_seq[i:i+BATCH_SIZE]
         yb = y_train[i:i+BATCH_SIZE]
@@ -158,28 +156,33 @@ def train_epoch():
         optimizer.zero_grad()
         outputs = model(xb)
         loss = criterion(outputs, yb)
-        loss.backward()
 
+        loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
         optimizer.step()
 
         total_loss += loss.item()
+
     return total_loss
+
 
 def eval_loss(X, y):
     model.eval()
     total_loss = 0
+
     with torch.no_grad():
         for i in range(0, len(X), BATCH_SIZE):
             xb = X[i:i+BATCH_SIZE]
             yb = y[i:i+BATCH_SIZE]
+
             outputs = model(xb)
             loss = criterion(outputs, yb)
             total_loss += loss.item()
+
     return total_loss
 
 
-# Training Loop
+# TRAIN LOOP
 
 for epoch in range(EPOCHS):
     train_loss = train_epoch()
@@ -190,7 +193,6 @@ for epoch in range(EPOCHS):
     if val_loss < best_val_loss:
         best_val_loss = val_loss
         patience_counter = 0
-
         torch.save(model.state_dict(), os.path.join(MODEL_PATH, "lstm_best.pth"))
         print("Best model saved")
     else:
@@ -201,35 +203,64 @@ for epoch in range(EPOCHS):
         break
 
 
-# Evaluation
+# PREDICTION FUNCTION
 
-def evaluate(X, y):
+def predict(X):
     model.eval()
     preds = []
+
     with torch.no_grad():
         for i in range(0, len(X), BATCH_SIZE):
             xb = X[i:i+BATCH_SIZE]
             outputs = model(xb)
             pred = torch.argmax(outputs, dim=1)
             preds.extend(pred.cpu().numpy())
-    return classification_report(y.cpu().numpy(), preds, zero_division=0)
 
-test_report = evaluate(X_test_seq, y_test)
-print("\nTEST RESULTS:\n", test_report)
+    return np.array(preds)
 
 
-# SAVE EVERYTHING 
+# EVALUATION FUNCTION
+
+def evaluate_split(name, X, y):
+    preds = predict(X)
+
+    report = classification_report(
+        y.cpu().numpy(),
+        preds,
+        zero_division=0
+    )
+
+    print(f"\n========== {name} RESULTS ==========\n")
+    print(report)
+
+    return report
+
+# FINAL EVALUATION
+
+train_report = evaluate_split("TRAIN", X_train_seq, y_train)
+val_report   = evaluate_split("VALIDATION", X_val_seq, y_val)
+test_report  = evaluate_split("TEST", X_test_seq, y_test)
 
 
-# Model weights
+# SAVE REPORTS
+
+with open(RESULT_PATH, "w") as f:
+    f.write("========== TRAIN RESULTS ==========\n\n")
+    f.write(train_report)
+    f.write("\n\n========== VALIDATION RESULTS ==========\n\n")
+    f.write(val_report)
+    f.write("\n\n========== TEST RESULTS ==========\n\n")
+    f.write(test_report)
+
+
+# SAVE MODEL + ARTIFACTS
+
 torch.save(model.state_dict(), os.path.join(MODEL_PATH, "lstm_final.pth"))
 
-# Vocab + labels
 joblib.dump(vocab, os.path.join(MODEL_PATH, "lstm_vocab.pkl"))
 joblib.dump(labels, os.path.join(MODEL_PATH, "lstm_labels.pkl"))
 joblib.dump(inv_labels, os.path.join(MODEL_PATH, "lstm_inverse_labels.pkl"))
 
-# Config
 config = {
     "model": "LSTM",
     "vocab_size": MAX_VOCAB,
@@ -244,10 +275,9 @@ config = {
 
 joblib.dump(config, os.path.join(MODEL_PATH, "lstm_config.pkl"))
 
-# Preprocessing info
-joblib.dump({"type": "basic_cleaning"}, os.path.join(MODEL_PATH, "lstm_preprocessing.pkl"))
+joblib.dump({"type": "basic_cleaning"},
+            os.path.join(MODEL_PATH, "lstm_preprocessing.pkl"))
 
-# Label distribution
 joblib.dump(y.value_counts().to_dict(),
             os.path.join(MODEL_PATH, "lstm_label_distribution.pkl"))
 

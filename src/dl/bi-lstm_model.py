@@ -1,4 +1,3 @@
-
 import pandas as pd
 import numpy as np
 import torch
@@ -10,16 +9,21 @@ import os
 import random
 
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import classification_report
+from sklearn.metrics import classification_report, confusion_matrix
 from collections import Counter
 
-# ==============================
+
 # Reproducibility
 
 SEED = 42
 torch.manual_seed(SEED)
+torch.cuda.manual_seed_all(SEED)
+
 np.random.seed(SEED)
 random.seed(SEED)
+
+torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark = False
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -33,7 +37,6 @@ RESULT_PATH = os.path.join(BASE_PATH, "experiments", "dl_results.txt")
 
 os.makedirs(MODEL_PATH, exist_ok=True)
 
-
 # Preprocessing
 
 def preprocess(text):
@@ -43,6 +46,7 @@ def preprocess(text):
     text = re.sub(r'[^a-z\s!?]', '', text)
     text = re.sub(r'\s+', ' ', text).strip()
     return text
+
 
 # Feature Engineering
 
@@ -59,13 +63,12 @@ def extract_features(text):
 # Load Data
 
 df = pd.read_csv(DATA_PATH)
-
 df["DATA"] = df["DATA"].astype(str).apply(preprocess)
+
 extra_features = np.array(df["DATA"].apply(extract_features).tolist())
 
 X = df["DATA"]
 y = df["TOPIC"]
-
 
 # Label Encoding
 
@@ -86,7 +89,6 @@ X_val, X_test, y_val, y_test, f_val, f_test = train_test_split(
     test_size=2/3, random_state=SEED, stratify=y_temp
 )
 
-
 # Tokenization
 
 def tokenize(text):
@@ -104,7 +106,6 @@ for text in X_train:
 MAX_VOCAB = 30000
 vocab = {word: i+1 for i, (word, _) in enumerate(counter.most_common(MAX_VOCAB))}
 
-
 # Encode + Pad
 
 MAX_LEN = 120
@@ -113,32 +114,28 @@ def encode(text):
     return [vocab.get(word, 0) for word in tokenize(text)]
 
 def pad(seqs):
-    padded = []
-    for seq in seqs:
-        seq = seq[:MAX_LEN]
-        seq = seq + [0]*(MAX_LEN - len(seq))
-        padded.append(seq)
-    return torch.tensor(padded, dtype=torch.long)
+    return torch.tensor([
+        seq[:MAX_LEN] + [0]*(MAX_LEN - len(seq[:MAX_LEN]))
+        for seq in seqs
+    ], dtype=torch.long)
 
-X_train_seq = pad([encode(t) for t in X_train]).to(device)
-X_val_seq = pad([encode(t) for t in X_val]).to(device)
-X_test_seq = pad([encode(t) for t in X_test]).to(device)
+X_train_seq = pad([encode(t) for t in X_train])
+X_val_seq   = pad([encode(t) for t in X_val])
+X_test_seq  = pad([encode(t) for t in X_test])
 
-f_train = torch.tensor(f_train, dtype=torch.float).to(device)
-f_val = torch.tensor(f_val, dtype=torch.float).to(device)
-f_test = torch.tensor(f_test, dtype=torch.float).to(device)
+f_train = torch.tensor(f_train, dtype=torch.float)
+f_val   = torch.tensor(f_val, dtype=torch.float)
+f_test  = torch.tensor(f_test, dtype=torch.float)
 
-y_train = torch.tensor(y_train.values, dtype=torch.long).to(device)
-y_val = torch.tensor(y_val.values, dtype=torch.long).to(device)
-y_test = torch.tensor(y_test.values, dtype=torch.long).to(device)
-
+y_train = torch.tensor(y_train.values, dtype=torch.long)
+y_val   = torch.tensor(y_val.values, dtype=torch.long)
+y_test  = torch.tensor(y_test.values, dtype=torch.long)
 
 # Class Weights
 
-class_counts = np.bincount(y_train.cpu().numpy())
+class_counts = np.bincount(y_train.numpy())
 class_weights = 1.0 / (class_counts + 1e-6)
 class_weights = torch.tensor(class_weights, dtype=torch.float).to(device)
-
 
 # Model
 
@@ -168,15 +165,11 @@ model = BiLSTMModel(
     feat_dim=4
 ).to(device)
 
-# Parameter count
-total_params = sum(p.numel() for p in model.parameters())
-print(f"\nTotal Parameters: {total_params}")
-
 
 # Training Setup
 
 criterion = nn.CrossEntropyLoss(weight=class_weights)
-optimizer = optim.Adam(model.parameters(), lr=0.0005)
+optimizer = optim.Adam(model.parameters(), lr=5e-4)
 
 EPOCHS = 35
 BATCH_SIZE = 256
@@ -185,128 +178,126 @@ PATIENCE = 5
 best_val_loss = float('inf')
 patience_counter = 0
 
+history = {"train_loss": [], "val_loss": []}
+
+
 # Training
 
-def train_epoch():
-    model.train()
+def run_epoch(X, F, y, train=True):
+    if train:
+        model.train()
+    else:
+        model.eval()
+
     total_loss = 0
-    for i in range(0, len(X_train_seq), BATCH_SIZE):
-        xb = X_train_seq[i:i+BATCH_SIZE]
-        fb = f_train[i:i+BATCH_SIZE]
-        yb = y_train[i:i+BATCH_SIZE]
+    n_batches = 0
 
-        optimizer.zero_grad()
-        outputs = model(xb, fb)
-        loss = criterion(outputs, yb)
-        loss.backward()
-
-        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-        optimizer.step()
-
-        total_loss += loss.item()
-    return total_loss
-
-def eval_loss(X, F, y):
-    model.eval()
-    total_loss = 0
-    with torch.no_grad():
+    with torch.set_grad_enabled(train):
         for i in range(0, len(X), BATCH_SIZE):
-            xb = X[i:i+BATCH_SIZE]
-            fb = F[i:i+BATCH_SIZE]
-            yb = y[i:i+BATCH_SIZE]
+            xb = X[i:i+BATCH_SIZE].to(device)
+            fb = F[i:i+BATCH_SIZE].to(device)
+            yb = y[i:i+BATCH_SIZE].to(device)
 
             outputs = model(xb, fb)
             loss = criterion(outputs, yb)
-            total_loss += loss.item()
-    return total_loss
 
+            if train:
+                optimizer.zero_grad()
+                loss.backward()
+                torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                optimizer.step()
+
+            total_loss += loss.item()
+            n_batches += 1
+
+    return total_loss / n_batches
 
 # Training Loop
 
 for epoch in range(EPOCHS):
-    train_loss = train_epoch()
-    val_loss = eval_loss(X_val_seq, f_val, y_val)
+    train_loss = run_epoch(X_train_seq, f_train, y_train, True)
+    val_loss   = run_epoch(X_val_seq, f_val, y_val, False)
 
-    print(f"Epoch {epoch+1}/{EPOCHS} | Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f}")
+    history["train_loss"].append(train_loss)
+    history["val_loss"].append(val_loss)
+
+    print(f"Epoch {epoch+1} | Train: {train_loss:.4f} | Val: {val_loss:.4f}")
 
     if val_loss < best_val_loss:
         best_val_loss = val_loss
         patience_counter = 0
-
         torch.save(model.state_dict(), os.path.join(MODEL_PATH, "bilstm_best.pth"))
-        print("Best model saved")
+        print(" Best model saved")
     else:
         patience_counter += 1
 
     if patience_counter >= PATIENCE:
-        print("Early stopping triggered")
+        print(" Early stopping")
         break
+
+
+# LOAD BEST MODEL
+
+model.load_state_dict(torch.load(os.path.join(MODEL_PATH, "bilstm_best.pth")))
+print(" Loaded BEST model")
 
 
 # Evaluation
 
-def evaluate(X, F, y):
+def evaluate(X, F, y, name):
     model.eval()
-    preds = []
+    preds, probs = [], []
+
     with torch.no_grad():
         for i in range(0, len(X), BATCH_SIZE):
-            xb = X[i:i+BATCH_SIZE]
-            fb = F[i:i+BATCH_SIZE]
+            xb = X[i:i+BATCH_SIZE].to(device)
+            fb = F[i:i+BATCH_SIZE].to(device)
+
             outputs = model(xb, fb)
-            pred = torch.argmax(outputs, dim=1)
+            prob = torch.softmax(outputs, dim=1)
+
+            pred = torch.argmax(prob, dim=1)
+
             preds.extend(pred.cpu().numpy())
+            probs.extend(prob.cpu().numpy())
 
-    return classification_report(y.cpu().numpy(), preds, zero_division=0)
+    report = classification_report(
+        y.numpy(),
+        preds,
+        target_names=[str(inv_labels[i]) for i in range(len(inv_labels))],
+        digits=2,
+        zero_division=0
+    )
 
-train_report = evaluate(X_train_seq, f_train, y_train)
-val_report = evaluate(X_val_seq, f_val, y_val)
-test_report = evaluate(X_test_seq, f_test, y_test)
+    print(f"\n========== {name} RESULTS ==========\n")
+    print(report)
 
-print("\nTEST RESULTS:\n", test_report)
+    # Save outputs
+    np.save(os.path.join(MODEL_PATH, f"{name}_preds.npy"), preds)
+    np.save(os.path.join(MODEL_PATH, f"{name}_probs.npy"), probs)
+    np.save(os.path.join(MODEL_PATH, f"{name}_labels.npy"), y.numpy())
 
+    cm = confusion_matrix(y.numpy(), preds)
+    np.save(os.path.join(MODEL_PATH, f"{name}_confusion.npy"), cm)
 
-# SAVE EVERYTHING 
+    return report
 
+train_report = evaluate(X_train_seq, f_train, y_train, "TRAIN")
+val_report   = evaluate(X_val_seq, f_val, y_val, "VALIDATION")
+test_report  = evaluate(X_test_seq, f_test, y_test, "TEST")
 
-# Model weights
-torch.save(model.state_dict(), os.path.join(MODEL_PATH, "bilstm_final.pth"))
+# Save Everything
 
-# Full checkpoint
-torch.save({
-    "model_state_dict": model.state_dict(),
-    "optimizer_state_dict": optimizer.state_dict(),
-    "config": {
-        "vocab_size": MAX_VOCAB + 1,
-        "embed_dim": 200,
-        "hidden_dim": 256,
-        "num_classes": len(labels),
-        "feat_dim": 4,
-        "max_len": MAX_LEN
-    }
-}, os.path.join(MODEL_PATH, "bilstm_checkpoint.pth"))
-
-# Artifacts
 joblib.dump(vocab, os.path.join(MODEL_PATH, "vocab.pkl"))
 joblib.dump(labels, os.path.join(MODEL_PATH, "labels.pkl"))
-joblib.dump(inv_labels, os.path.join(MODEL_PATH, "inverse_labels.pkl"))
+joblib.dump(inv_labels, os.path.join(MODEL_PATH, "inv_labels.pkl"))
+joblib.dump(history, os.path.join(MODEL_PATH, "history.pkl"))
 
-joblib.dump({
-    "preprocessing": "lowercase + clean",
-    "tokenization": "unigram + bigram",
-    "features": ["length", "avg_word_len", "!", "?"]
-}, os.path.join(MODEL_PATH, "pipeline.pkl"))
-
-joblib.dump(
-    dict(pd.Series(y).value_counts()),
-    os.path.join(MODEL_PATH, "label_distribution.pkl")
-)
-
-# Results
 with open(RESULT_PATH, "a") as f:
     f.write("\n" + "="*80 + "\n")
-    f.write("FINAL BiLSTM (FULL)\n\n")
+    f.write("FINAL BiLSTM\n\n")
     f.write("TRAIN:\n" + train_report + "\n\n")
     f.write("VAL:\n" + val_report + "\n\n")
     f.write("TEST:\n" + test_report + "\n")
 
-print("\n EVERYTHING SAVED PERFECTLY (MODEL + CONFIG + PIPELINE + CHECKPOINT)")
+print("\n EVERYTHING SAVED PERFECTLY (FINAL VERSION)")
