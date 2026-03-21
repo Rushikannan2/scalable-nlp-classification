@@ -406,3 +406,105 @@ TEST:
    macro avg       0.72      0.73      0.72     20000
 weighted avg       0.85      0.83      0.83     20000
 
+
+================================================================================
+FINAL BiLSTM
+
+TRAIN:
+                             precision    recall  f1-score   support
+
+              adult_content       1.00      0.98      0.99       889
+             art_and_design       0.14      0.83      0.24       284
+              crime_and_law       0.78      0.84      0.81      2485
+         education_and_jobs       0.95      0.80      0.87      6832
+    electronics_and_hardare       0.76      0.83      0.79       867
+              entertainment       0.92      0.80      0.86      5262
+         fashion_and_beauty       0.25      0.84      0.39       251
+       finance_and_business       0.97      0.89      0.93     10212
+            food_and_dining       0.73      0.92      0.82       671
+                      games       0.13      0.90      0.22       184
+                     health       0.41      0.67      0.51       941
+      history_and_geography       0.69      0.81      0.74      1709
+           home_and_hobbies       0.95      0.93      0.94      2754
+                 industrial       0.15      0.86      0.25       436
+                 literature       0.74      0.87      0.80      2194
+                   politics       0.82      0.63      0.71      3939
+                   religion       0.93      0.75      0.83      2755
+science_math_and_technology       0.92      0.74      0.82     10646
+                social_life       0.92      0.81      0.86      1181
+                   software       0.87      0.85      0.86      3930
+       software_development       0.83      0.82      0.83      4281
+         sports_and_fitness       0.95      0.83      0.88      3477
+             transportation       0.99      0.90      0.95      3156
+         travel_and_tourism       0.54      0.84      0.66       664
+
+                   accuracy                           0.81     70000
+                  macro avg       0.72      0.83      0.73     70000
+               weighted avg       0.88      0.81      0.84     70000
+
+
+VAL:
+                             precision    recall  f1-score   support
+
+              adult_content       0.98      0.98      0.98       127
+             art_and_design       0.07      0.41      0.13        41
+              crime_and_law       0.73      0.82      0.77       355
+         education_and_jobs       0.92      0.77      0.84       976
+    electronics_and_hardare       0.70      0.74      0.72       124
+              entertainment       0.89      0.79      0.84       752
+         fashion_and_beauty       0.17      0.50      0.26        36
+       finance_and_business       0.97      0.87      0.92      1459
+            food_and_dining       0.59      0.79      0.68        96
+                      games       0.03      0.19      0.05        26
+                     health       0.31      0.51      0.39       135
+      history_and_geography       0.59      0.67      0.62       244
+           home_and_hobbies       0.95      0.93      0.94       393
+                 industrial       0.08      0.50      0.14        62
+                 literature       0.65      0.77      0.70       313
+                   politics       0.75      0.56      0.64       562
+                   religion       0.91      0.76      0.82       394
+science_math_and_technology       0.89      0.72      0.80      1521
+                social_life       0.89      0.78      0.83       169
+                   software       0.83      0.83      0.83       561
+       software_development       0.80      0.75      0.78       612
+         sports_and_fitness       0.92      0.79      0.85       496
+             transportation       0.99      0.90      0.94       451
+         travel_and_tourism       0.46      0.72      0.56        95
+
+                   accuracy                           0.77     10000
+                  macro avg       0.67      0.71      0.67     10000
+               weighted avg       0.85      0.77      0.80     10000
+
+
+TEST:
+                             precision    recall  f1-score   support
+
+              adult_content       0.98      0.98      0.98       254
+             art_and_design       0.07      0.51      0.13        81
+              crime_and_law       0.76      0.81      0.79       710
+         education_and_jobs       0.93      0.77      0.84      1952
+    electronics_and_hardare       0.71      0.77      0.74       247
+              entertainment       0.89      0.77      0.82      1503
+         fashion_and_beauty       0.15      0.51      0.23        71
+       finance_and_business       0.97      0.89      0.92      2917
+            food_and_dining       0.61      0.77      0.68       191
+                      games       0.06      0.51      0.11        53
+                     health       0.30      0.45      0.36       269
+      history_and_geography       0.55      0.69      0.61       488
+           home_and_hobbies       0.94      0.90      0.92       787
+                 industrial       0.08      0.50      0.13       125
+                 literature       0.68      0.82      0.74       627
+                   politics       0.76      0.57      0.65      1126
+                   religion       0.90      0.70      0.79       787
+science_math_and_technology       0.89      0.71      0.79      3042
+                social_life       0.90      0.75      0.82       338
+                   software       0.87      0.83      0.85      1123
+       software_development       0.78      0.76      0.77      1223
+         sports_and_fitness       0.94      0.82      0.87       994
+             transportation       0.99      0.89      0.94       902
+         travel_and_tourism       0.47      0.63      0.54       190
+
+                   accuracy                           0.77     20000
+                  macro avg       0.67      0.72      0.67     20000
+               weighted avg       0.85      0.77      0.80     20000
+
