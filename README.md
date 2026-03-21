@@ -169,6 +169,19 @@ Each training script produces:
 
 ---
 
+## End-to-End Execution
+
+1. Prepare data:
+   python src/data/load_data.py
+
+2. Train model:
+   python src/ml/svm_model.py
+
+3. Run inference:
+   python src/Inference/inference.py --text "sample text" --model_type svm
+
+
+
 ## Inference Instructions
 
 The unified inference script supports all 7 models via a single `--model_type` flag.
