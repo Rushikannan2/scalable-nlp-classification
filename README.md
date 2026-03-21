@@ -1,8 +1,9 @@
-# Topic Classification System
+## Dataset Usage
 
-Multi-class topic classification across **24 topics** trained on a 100K stratified sample drawn from a 10M-row corpus.  
-All models are built **from scratch** — no pretrained weights or pretrained embeddings are used.
+The original dataset contains approximately **10 million samples (4GB)**.  
+Due to computational constraints (GPU memory and training time), a **stratified subset of 100,000 samples** was used for all experiments.
 
+This subset preserves the overall class distribution, enabling efficient experimentation while maintaining reliable performance evaluation.
 ---
 
 ## Repository Structure
